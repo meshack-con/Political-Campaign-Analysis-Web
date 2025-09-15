@@ -1,0 +1,156 @@
+import streamlit as st
+import pandas as pd
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from io import BytesIO
+
+# Initialize session state
+if 'data' not in st.session_state:
+    st.session_state.data = pd.DataFrame(columns=[
+        "Eneo", "Hali ya Ushawishi wa CCM (%)", "Nguvu ya Mpinzani (%)", 
+        "Uwezekano wa Kushinda (%)", "Sababu Kushindwa", 
+        "Changamoto za Kijamii (%)", "Changamoto", 
+        "Idadi Waliyojiandikisha", "Idadi CCM", "Mapendekezo"
+    ])
+
+st.title("Political Campaign Analysis Web App")
+
+# Background color theme (Green & Yellow)
+st.markdown(
+    """
+    <style>
+    .stApp { background: linear-gradient(120deg, #00cc00, #ffff66); }
+    .error-box {
+        border: 2px solid red;
+        padding: 5px;
+        border-radius: 5px;
+        background-color: #ffe6e6;
+    }
+    </style>
+    """, unsafe_allow_html=True
+)
+
+with st.form("data_form"):
+    eneo = st.text_input("Eneo")
+    
+    # Sliders for percentages
+    hali = st.slider("Hali ya Ushawishi wa Kisiasa wa CCM (%)", 0, 100, 50)
+    mpinzani = st.slider("Nguvu ya Mpinzani (%)", 0, 100, 50)
+    uwezekano = st.slider("Uwezekano wa Kushinda (%)", 0, 100, 50)
+    changamoto = st.slider("Changamoto za Kijamii (%)", 0, 100, 30)
+    
+    # Conditional inputs
+    sababu_kushindwa = ""
+    changamoto_list = ""
+
+    if uwezekano < 50:
+        sababu_kushindwa = st.text_area("Taja sababu za uwezekano mdogo wa kushinda", key="sababu")
+    if changamoto > 50:
+        changamoto_list = st.text_area("Orodhesha changamoto kuu za kijamii", key="changamoto")
+
+    waliyojiandikisha = st.number_input("Idadi ya Waliyojiandikisha", min_value=0)
+    ccm = st.number_input("Idadi ya Wanachama wa CCM", min_value=0)
+    mapendekezo = st.text_area("Mapendekezo / Ushauri")
+
+    submitted = st.form_submit_button("Ongeza Data")
+    
+    if submitted:
+        # Validation
+        if uwezekano < 50 and not sababu_kushindwa.strip():
+            st.markdown("<div class='error-box'>⚠️ Tafadhali taja sababu za uwezekano mdogo wa kushinda.</div>", unsafe_allow_html=True)
+            st.error("Sababu za kushindwa hazijawekwa!")
+            st.markdown("<script>new Audio('https://www.soundjay.com/button/beep-07.wav').play();</script>", unsafe_allow_html=True)
+
+        elif changamoto > 50 and not changamoto_list.strip():
+            st.markdown("<div class='error-box'>⚠️ Tafadhali orodhesha changamoto kuu za kijamii.</div>", unsafe_allow_html=True)
+            st.error("Changamoto hazijaorodheshwa!")
+            st.markdown("<script>new Audio('https://www.soundjay.com/button/beep-07.wav').play();</script>", unsafe_allow_html=True)
+
+        else:
+            new_row = {
+                "Eneo": eneo,
+                "Hali ya Ushawishi wa CCM (%)": hali,
+                "Nguvu ya Mpinzani (%)": mpinzani,
+                "Uwezekano wa Kushinda (%)": uwezekano,
+                "Sababu Kushindwa": sababu_kushindwa,
+                "Changamoto za Kijamii (%)": changamoto,
+                "Changamoto": changamoto_list,
+                "Idadi Waliyojiandikisha": waliyojiandikisha,
+                "Idadi CCM": ccm,
+                "Mapendekezo": mapendekezo
+            }
+            st.session_state.data = pd.concat([st.session_state.data, pd.DataFrame([new_row])], ignore_index=True)
+            st.success("Data imeongezwa!")
+
+st.subheader("Preview ya Data")
+st.dataframe(st.session_state.data)
+
+# Function to generate PDF
+def create_pdf(df):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    elements.append(Paragraph("Political Campaign Analysis Report", styles['Title']))
+    elements.append(Spacer(1, 12))
+
+    # Table
+    table_data = [df.columns.tolist()] + df.values.tolist()
+    max_len = 25
+    for i in range(1, len(table_data)):
+        table_data[i] = [str(cell)[:max_len] + ("..." if len(str(cell)) > max_len else "") for cell in table_data[i]]
+
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.lightgreen),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.black),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('ALIGN',(0,0),(-1,-1),'CENTER')
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 20))
+
+    # Summary section
+    summary_text = f"""
+    Jumla ya Eneo: {len(df)}<br/>
+    Hali ya Ushawishi wa CCM (Average %): {df['Hali ya Ushawishi wa CCM (%)'].mean():.2f}<br/>
+    Nguvu ya Mpinzani (Average %): {df['Nguvu ya Mpinzani (%)'].mean():.2f}<br/>
+    Uwezekano wa Kushinda (Average %): {df['Uwezekano wa Kushinda (%)'].mean():.2f}<br/>
+    Changamoto za Kijamii (Average %): {df['Changamoto za Kijamii (%)'].mean():.2f}<br/>
+    Idadi ya Waliyojiandikisha (Total): {df['Idadi Waliyojiandikisha'].sum()}<br/>
+    Idadi ya Wanachama wa CCM (Total): {df['Idadi CCM'].sum()}<br/>
+    """
+
+    elements.append(Paragraph("Summary:", styles['Heading2']))
+    elements.append(Paragraph(summary_text, styles['Normal']))
+
+    # Add notes for Sababu Kushindwa, Changamoto & Mapendekezo
+    for idx, row in df.iterrows():
+        if row["Sababu Kushindwa"] or row["Changamoto"] or row["Mapendekezo"]:
+            elements.append(Spacer(1, 10))
+            elements.append(Paragraph(f"<b>Eneo:</b> {row['Eneo']}", styles['Heading3']))
+            if row["Sababu Kushindwa"]:
+                elements.append(Paragraph(f"Sababu za Kushindwa: {row['Sababu Kushindwa']}", styles['Normal']))
+            if row["Changamoto"]:
+                elements.append(Paragraph(f"Changamoto: {row['Changamoto']}", styles['Normal']))
+            if row["Mapendekezo"]:
+                elements.append(Paragraph(f"Mapendekezo: {row['Mapendekezo']}", styles['Normal']))
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+# Download Button
+if not st.session_state.data.empty:
+    if st.button("Download PDF Report"):
+        pdf_file = create_pdf(st.session_state.data)
+        st.download_button(
+            label="Download Report as PDF",
+            data=pdf_file,
+            file_name="Campaign_Report.pdf",
+            mime="application/pdf"
+        )
